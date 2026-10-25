@@ -5,57 +5,73 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   build-apk:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Extract project zip if uploaded directly from phone
+      - name: Extract Zip if Uploaded Directly
         run: |
-          if [ ! -f "settings.gradle.kts" ]; then
-            ZIP_FILE=$(find . -maxdepth 2 -name "*.zip" | head -n 1)
-            if [ -n "$ZIP_FILE" ]; then
-              unzip -o "$ZIP_FILE" -d .
-              if [ -d "Aparna_Keyboard_Android_Project" ] && [ ! -f "settings.gradle.kts" ]; then
-                cp -r Aparna_Keyboard_Android_Project/* .
-                cp -r Aparna_Keyboard_Android_Project/.* . 2>/dev/null || true
-              fi
+          if [ -f "Aparna_Keyboard_Android_Project.zip" ] && [ ! -f "settings.gradle.kts" ]; then
+            unzip -q -o Aparna_Keyboard_Android_Project.zip
+            if [ -d "Aparna_Keyboard_Android_Project" ]; then
+              cp -r Aparna_Keyboard_Android_Project/* .
+              rm -rf Aparna_Keyboard_Android_Project
             fi
           fi
+
+      - name: Auto-Fix Kotlin Syntax & Font Resources
+        run: |
+          python3 - << 'PYEOF'
+          import os, shutil
+          nl, bs, q = chr(10), chr(92), chr(34)
+          pkg = "app/src/main/java/com/aparna/keyboard"
+          if os.path.exists("app/src/main/res/font"):
+              shutil.rmtree("app/src/main/res/font", ignore_errors=True)
+
+          kl = os.path.join(pkg, "KeyboardLanguage.kt")
+          if os.path.exists(kl):
+              t = open(kl, encoding="utf-8").read()
+              t = t.replace('""ss02" 1, "kern" 1, "liga" 1"', q+bs+q+'ss02'+bs+q+' 1, '+bs+q+'kern'+bs+q+' 1, '+bs+q+'liga'+bs+q+' 1'+q)
+              t = t.replace('""ss01" 1, "kern" 1, "liga" 1"', q+bs+q+'ss01'+bs+q+' 1, '+bs+q+'kern'+bs+q+' 1, '+bs+q+'liga'+bs+q+' 1'+q)
+              t = t.replace('""kern" 1, "liga" 1"', q+bs+q+'kern'+bs+q+' 1, '+bs+q+'liga'+bs+q+' 1'+q)
+              open(kl, "w", encoding="utf-8").write(t)
+
+          lay = os.path.join(pkg, "KeyboardLayouts.kt")
+          if os.path.exists(lay):
+              t = open(lay, encoding="utf-8").read()
+              t = t.replace('"*",""","', '"*",' + q + bs + q + q + ',"')
+              open(lay, "w", encoding="utf-8").write(t)
+
+          ma = os.path.join(pkg, "MainActivity.kt")
+          if os.path.exists(ma):
+              t = open(ma, encoding="utf-8").read()
+              t = t.replace('""ss01" 1, "kern" 1, "liga" 1"', q+bs+q+'ss01'+bs+q+' 1, '+bs+q+'kern'+bs+q+' 1, '+bs+q+'liga'+bs+q+' 1'+q)
+              t = t.replace('।' + nl + '" +', '।' + bs + 'n" +')
+              t = t.replace('॥' + nl + '" +', '॥' + bs + 'n" +')
+              t = t.replace('Devanagari' + nl + '"', 'Devanagari' + bs + 'n"')
+              t = t.replace('insert(start, "' + nl + '")', 'insert(start, "' + bs + 'n")')
+              open(ma, "w", encoding="utf-8").write(t)
+          PYEOF
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          java-version: "17"
-          distribution: "temurin"
+          distribution: 'temurin'
+          java-version: '17'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
-          gradle-version: "8.7"
+          gradle-version: '8.7'
 
       - name: Build Debug APK
-        run: gradle assembleDebug --no-daemon
+        run: gradle assembleDebug --no-daemon --stacktrace
 
-      - name: Rename APK for easy download
-        run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Aparna-MultiLanguage-Keyboard-v1.0.apk
-
-      - name: Upload APK to Actions Artifacts
+      - name: Upload Aparna Keyboard APK
         uses: actions/upload-artifact@v4
         with:
           name: Aparna-MultiLanguage-Keyboard-v1.0-APK
-          path: Aparna-MultiLanguage-Keyboard-v1.0.apk
-
-      - name: Publish APK to GitHub Releases
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v1.0
-          name: "Aparna Multi-Language Keyboard v1.0 (APK)"
-          body: "অপর্ণা মাল্টি-ল্যাঙ্গুয়েজ অ্যান্ড্রয়েড কিবোর্ড (English, বাংলা, বৈদিক-বাংলা, Devanagari) — সরাসরি নিচের APK ফাইলটিতে ট্যাপ করে ডাউনলোড ও ইনস্টল করুন।"
-          files: Aparna-MultiLanguage-Keyboard-v1.0.apk
+          path: app/build/outputs/apk/debug/app-debug.apk
